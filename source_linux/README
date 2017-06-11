@@ -1,0 +1,9 @@
+Compilation of module: Just run make in folder -> Makefile handles compilation
+Loading module: sudo insmod mod.ko
+Remove module: sudo rmmod mod.ko
+
+-> Module prints Welcome!, names of running processes and loaded modules in kernel log on startup
+-> On unloading it prints Goodbye!
+
+
+To clean up: type make clean into console
