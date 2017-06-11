@@ -41,7 +41,7 @@ int create_shared_mem_region(ssize_t size, struct shrd_region_struct *region)
 }
 
 int share_region(struct shrd_region_struct *region, struct task_struct *process, unsigned long start_address) {
-	struct vm_area_struct *last_seg, *new_seg, *prev = NULL;
+	struct vm_area_struct *last_seg = NULL, *new_seg = NULL, *prev = NULL;
 	struct rb_node **rb_link = NULL, *rb_parent = NULL;
     struct task_shrd_region_struct *sharing = NULL;
 

@@ -175,23 +175,6 @@ ERR:
 }
 
 /**
- *	Calculate the control region's size to caontain all necessary data.
- *
- *	@returns 	0 on success; <0 otherwise.
- */
-size_t get_size_ctl_region(void) {
-	int it = 0;
-
-	if(!ctl_region_size) {
-		ctl_region_size = sizeof(struct ctl_reg_t);
-
-		for(it = 0; it < ctl_reg->nblks; ++it)
-			ctl_region_size += blklen[it];
-	}
-	return ctl_region_size;
-}
-
-/**
  *	Load all semgments to the shared memory region.
  *
  *	@returns 	0 on success; <0 otherwise.

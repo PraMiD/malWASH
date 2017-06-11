@@ -25,8 +25,21 @@
  };
 
 /**
- *  Inject the emulator in up to n processes.
+ *  Inject the emulator in up to NMAXTHREADS processes.
+ *
+ *  @param  list        List of processes used for white-/blacklisting of processes.
+ *  @param  listsize    Number of elementes in the list.
+ *  @param  mode        BLACKLISTING, WHITELISTING or RANDOM. If RANDOM is chosen, we
+ *                          select arbitrary suitable processes.
+ *  @returns            0 on success; < 0 otherwise
  */
-int inject_processes(char *[], enum SEARCH_MODE);
+int inject_processes(char *list[], int listsize, enum SEARCH_MODE mode);
+
+/**
+ *  Start new threads in the injected processes to execute the emulator.
+ *
+ *  @returns            0 on success; otherwise < 0
+ */
+int start_threads(void);
 
 #endif

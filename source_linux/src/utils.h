@@ -123,4 +123,11 @@ struct ctl_reg_t
 
 /*  FUNCTIONS   */
 void reasm(void);
+
+/**
+ *	Calculate the control region's size to caontain all necessary data.
+ *
+ *	@returns 	0 on success; <0 otherwise.
+ */
+size_t get_size_ctl_region(void);
 #endif
