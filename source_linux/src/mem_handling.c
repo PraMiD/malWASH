@@ -30,6 +30,8 @@ int create_shared_mem_region(ssize_t size, struct shrd_region_struct *region)
 		goto err;
 	}
 
+	printk(KERN_INFO "Size of new shared region: %d", size);
+
 	region->size = size;
     INIT_LIST_HEAD(&region->mappings);
     return 0;
@@ -55,71 +57,73 @@ int share_region(struct shrd_region_struct *region, struct task_struct *process,
 	p___vma_link_rb = (void (*)(struct mm_struct *, struct vm_area_struct *, struct rb_node **, struct rb_node *))kallsyms_lookup_name("__vma_link_rb");
 
     if(!p_vma_set_page_prot || !p_vm_stat_account || !p___vma_link_rb) {
-        goto err;
+        goto ERR;
 	}
 
 	if(!region || !process) {
-		goto err;
+		goto ERR;
 	}
 
     if(!(sharing = kmalloc(sizeof(struct task_shrd_region_struct), GFP_KERNEL))) {
-        goto err;
+        goto ERR;
 	}
 	
+
 	sharing->task = process;
     new_seg = &(sharing->vma);
+
 
 	// TODO: Check if we can omit this part. All values should be filled out by ourself.
     last_seg = process->mm->mmap;
 	if(!last_seg) 
-        goto err;
+        goto ERR;
 	for(; last_seg->vm_next != NULL; last_seg = last_seg->vm_next) ; // Get the last stored memory segment
 
 
 	down_write(&process->mm->mmap_sem);
 	memcpy(new_seg, last_seg, sizeof(struct vm_area_struct)); // Copy the values of the last region as a "starting point"
 
+
 	new_seg->vm_mm = process->mm;
-	new_seg->vm_start = start_address; // Append directly to the last region
-	new_seg->vm_end = new_seg->vm_start + region->size;
-	new_seg->vm_flags |= VM_LOCKED | VM_DONTEXPAND | VM_DONTDUMP;
+	new_seg->vm_start = start_address;
+	new_seg->vm_end = new_seg->vm_start + PAGE_ALIGN(region->size);
+	new_seg->vm_flags |= VM_READ | VM_WRITE | VM_EXEC | VM_LOCKED | VM_DONTEXPAND | VM_DONTDUMP;
 	new_seg->vm_page_prot = vm_get_page_prot(new_seg->vm_flags);
 	new_seg->vm_pgoff = 0;
 	new_seg->vm_ops = &vm_ops;
 
 	INIT_LIST_HEAD(&new_seg->anon_vma_chain);
 	find_vma_links(new_seg->vm_mm, new_seg->vm_start, new_seg->vm_end, &prev, &rb_link, &rb_parent);
-	new_seg->vm_next = prev->vm_next; // We searched the last element => next == NULL
+	new_seg->vm_next = last_seg->vm_next; // We searched the last element => next == NULL
 	new_seg->vm_prev = last_seg;
 	last_seg->vm_next = new_seg;
 	p___vma_link_rb(new_seg->vm_mm, new_seg, rb_link, rb_parent);
+
 
 	p_vm_stat_account(process->mm, new_seg->vm_flags, (new_seg->vm_end - new_seg->vm_start) >> PAGE_SHIFT);
 	new_seg->vm_flags |= VM_SOFTDIRTY;
 	p_vma_set_page_prot(new_seg);
 
-	up_write(&process->mm->mmap_sem);
-
-	printk(KERN_INFO "Mapping virtual memory from 0x%lx to 0x%lx", new_seg->vm_start, new_seg->vm_end);
+	printk(KERN_INFO "Last mapping: 0x%lx to 0x%lx\n", last_seg->vm_start, last_seg->vm_end);
+	printk(KERN_INFO "Mapping virtual memory from 0x%lx to 0x%lx. Size: 0x%x; Shift; %d\n", PAGE_ALIGN(new_seg->vm_start), new_seg->vm_end, region->size, PAGE_SHIFT);
 
 
   	if (remap_pfn_range(new_seg, new_seg->vm_start,
                      virt_to_phys((void*)((unsigned long)region->kernel_mem)) >> PAGE_SHIFT,
                      region->size,
-                     PAGE_SHARED))
+                     new_seg->vm_page_prot))
 	{
     	printk("remap page range failed\n");
-     	goto err;
+		up_write(&process->mm->mmap_sem);
+     	goto ERR;
 	}
 
 	up_write(&process->mm->mmap_sem);
-
     list_add_tail(&sharing->other_tasks, &region->mappings);
-
 	printk(KERN_INFO "Your start address: 0x%lx\n", new_seg->vm_start);
 	return 0;
 
-    err:
+    ERR:
         if(sharing)
             kfree(sharing);
         return -1;

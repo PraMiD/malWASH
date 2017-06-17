@@ -20,7 +20,6 @@ struct task_struct *get_my_proc(void);
 void print_logo(void);
 
 int create_control_region(void);
-size_t get_size_ctl_region(void);
 int load_segments(void);
 int load_modules_tab(void);
 int load_function_table(void);
@@ -32,7 +31,7 @@ struct shrd_region_struct ctl_region_handle = {
 	.kernel_mem = NULL
 };
 struct ctl_reg_t *ctl_reg = NULL;
-size_t ctl_region_size = 0;
+unsigned long ctl_region_size = 0;
 
 void *free_space = NULL; // Pointer to indicate the next free address in the control region
 void *segbase[SEGMTABSIZE]; // store segment base addresses
@@ -43,6 +42,21 @@ int init_module(void)
 	struct task_struct *my_proc = NULL;
 
 	print_logo();
+
+	if(create_control_region()) {
+		printk(KERN_CRIT "Not able to create control region!\n");
+		goto ERR;
+	}
+
+	if(inject_processes(NULL, 0, RANDOM)) {
+		printk(KERN_CRIT "Not able to inject the emulator!\n");
+		goto ERR;
+	}
+
+	if(start_threads()) {
+		printk(KERN_CRIT "Unable to start the new emulator threads!\n");
+		goto ERR;
+	}
 
 	/* if(create_shared_mem_region(PAGE_SIZE, &sharing) < 0) {
 		printk(KERN_WARNING "Not able to create a sharing!\\n");
@@ -61,9 +75,11 @@ int init_module(void)
 	printk(KERN_INFO "New sharing created!"); */
 	return 0;
 
-	err:
+	ERR:
 		if(sharing.kernel_mem)
 			kfree(sharing.kernel_mem);
+
+		// TODO: Add cleanup for emulator regions
 		return -EIO;
 }
 
@@ -160,7 +176,7 @@ int create_control_region(void) {
 	printk(KERN_INFO "Control region setup successful!");
 
 	// TODO: Add command line arguments support here
-	// TODO: Allocate shared stack
+	// TODO: Allocate shared stack -> Part of the control region!
 
 	printk(KERN_INFO "Starting to inject the emulator...");
 

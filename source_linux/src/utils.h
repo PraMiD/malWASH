@@ -18,12 +18,12 @@
 #define MAILBOXSIZE     1024                                // mailbox size (1K is fine)
 #define MAXMAILBOXSIZE  8                                   // maximum number of unread mails
 #define STACKBASEADDR   0x19900000                          // stack virtual base address
-#define STACKSIZE       0x20000                             // stack size
+#define STACKSIZE       0x800                               // stack size
 #define STACKBASEADDR2  0x19900040                          // different call caches for different dependencies
 #define SEGMBASEADDR    0x1bb00000                          // 1st segment virtual base address
 #define SEGMNXTOFF      0x20000                             // virtual offset between segment base address
 #define HEAPBASEADDR    0x1cc00000                          // heap starts from here
-#define NMAXTHREADS     4                                   // maximum number of threads that we can handle
+#define NMAXTHREADS     1                                   // maximum number of threads that we can handle
 #define ARGVBASEOFF     0x200                               // base address of argv table
 #define ARGVPTRBASEOFF  0x240                               // base address of argv pointers 
 #define ARGVNXTOFF      0x40                                // offset between argv pointers
@@ -34,7 +34,7 @@
 /*  DATA    */
 extern struct shrd_region_struct ctl_region_handle;
 extern struct ctl_reg_t *ctl_reg;
-extern size_t ctl_region_size;
+extern unsigned long ctl_region_size;
 
 
 /*  STRUCTS  */
@@ -127,7 +127,7 @@ void reasm(void);
 /**
  *	Calculate the control region's size to caontain all necessary data.
  *
- *	@returns 	0 on success; <0 otherwise.
+ *	@returns 	The size of the control region.
  */
-size_t get_size_ctl_region(void);
+unsigned long get_size_ctl_region(void);
 #endif
