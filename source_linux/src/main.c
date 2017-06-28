@@ -30,7 +30,7 @@ int load_blocks(void);
 struct shrd_region_struct ctl_region_handle = {
 	.kernel_mem = NULL
 };
-struct ctl_reg_t *ctl_reg = NULL;
+struct ctl_region *ctl_region = NULL;
 unsigned long ctl_region_size = 0;
 
 void *free_space = NULL; // Pointer to indicate the next free address in the control region
@@ -139,27 +139,28 @@ int create_control_region(void) {
 		goto ERR;
 	}
 
-	ctl_reg = ctl_region_handle.kernel_mem;
-	ctl_reg->nblks       = NBLOCKS;                      // set number of blocks
-	ctl_reg->nxtblk[0]   = 1;                            // always start with block 1
-	ctl_reg->nsegms      = NSEGMS;                       // set number of segments
-	ctl_reg->nproc       = NPROC;                        // set number of processses
-	ctl_reg->nxtheapaddr = HEAPBASEADDR;                 // that's the base address of shared heap
+	ctl_region = ctl_region_handle.kernel_mem;
+	ctl_region->nblks       = NBLOCKS;                      // set number of blocks
+	ctl_region->nxtblk[0]   = 1;                            // always start with block 1
+	ctl_region->nsegms      = NSEGMS;                       // set number of segments
+	ctl_region->nproc       = NPROC;                        // set number of processses
+	ctl_region->nxtheapaddr = HEAPBASEADDR;                 // that's the base address of shared heap
 
 	for(it = 0; it < NMAXTHREADS; ++it) {
 		// We have to place the stack on a defined address
 		// => check if this address is available during process selection
 		// Maybe we find a better solution for this..
-		ctl_reg->ctx[it].esp = STACKBASEADDR + (STACKSIZE + 0x20000)*it + 0x10000;
-		ctl_reg->ctx[it].ebp = ctl_reg->ctx[it].esp - 0x80;
-		ctl_reg->ctx[it].eax = 0;
+		ctl_region->ctx[it].esp = STACKBASEADDR + (STACKSIZE + 0x20000)*it + 0x10000;
+		ctl_region->ctx[it].ebp = ctl_region->ctx[it].esp - 0x80;
+		ctl_region->ctx[it].eax = 0;
+		ctl_region->mutex[it] = 0; // Every thread executable
 
-		ctl_reg->thrdst[0] = THREAD_UNUSED;
+		ctl_region->thrdst[0] = THREAD_UNUSED;
 	}
 
-	free_space = ctl_region_handle.kernel_mem + sizeof(struct ctl_reg_t);
+	free_space = ctl_region_handle.kernel_mem + sizeof(struct ctl_region);
 
-	ctl_reg->thrdst[0] = THREAD_RUNNING;
+	ctl_region->thrdst[0] = THREAD_RUNNING;)
 
 
 	if((err = load_segments()))
@@ -202,13 +203,13 @@ int load_segments(void) {
 	#pragma GCC diagnostic ignored "-Warray-bounds"
     for(p = supsegm[0]; p;  p = supsegm[++it])  // List is NULL terminated
     {
-        ctl_reg->segm[it].segmid = it;                         // set index
-        ctl_reg->segm[it].startEA = *(void **)p;               // first 4 bytes is start RVA
-        ctl_reg->segm[it].endEA = *(void **)(p + 4);           // next  4 bytes is end RVA
-		ctl_reg->segm[it].offset = (int)(free_space - (void *)ctl_reg); 
+        ctl_region->segm[it].segmid = it;                         // set index
+        ctl_region->segm[it].startEA = *(void **)p;               // first 4 bytes is start RVA
+        ctl_region->segm[it].endEA = *(void **)(p + 4);           // next  4 bytes is end RVA
+		ctl_region->segm[it].offset = (int)(free_space - (void *)ctl_region); 
         
         // the name can be random to avoid detection. However we choose such names to make debugging easier.
-        snprintf(ctl_reg->segm[it].name, 6, "seg%02d", ctl_reg->segm[it].segmid);
+        snprintf(ctl_region->segm[it].name, 6, "seg%02d", ctl_region->segm[it].segmid);
         segbase[it] = free_space;                                  // store base address (we need it for initab relocations)
         memcpy(segbase[it], (void*)(p+8), seglen[it] - 8);            // copy const array to shared region
 		free_space += seglen[it] - 8;
@@ -230,7 +231,7 @@ int load_modules_tab(void)
         i += 2;                                             // first 2 bytes is module id. Skip them
 
         for(j = 0; modtab[i] != '\n'; ++j)                  // stop copying when you reach a newline
-            ctl_reg->modl[k++].name[j] = modtab[i++];          // copy dll name
+            ctl_region->modl[k++].name[j] = modtab[i++];          // copy dll name
     
 	}
 	return 0;
@@ -242,7 +243,7 @@ int load_modules_tab(void)
  *	@returns	0 on success (Currently the only possible value)
  */
 int load_function_table(void) {
-	memcpy((void *)&ctl_reg->funtab, funtab, funtablen); // Plain array copy
+	memcpy((void *)&ctl_region->funtab, funtab, funtablen); // Plain array copy
 	return 0;
 }
 
@@ -255,8 +256,8 @@ int load_thread_table(void) {
 	int i = 0, j = 0;
 	// slot #0 is reserved for main thread
 	for(i = 1, j = 0; i < NMAXTHREADS && thdtab[j]; i++, j += 2) {
-        ctl_reg->thrdrtn[i] = thdtab[j];
-        ctl_reg->nxtblk[i] = thdtab[j + 1];
+        ctl_region->thrdrtn[i] = thdtab[j];
+        ctl_region->nxtblk[i] = thdtab[j + 1];
     }
 
 	return 0;
@@ -273,7 +274,7 @@ int load_init_table(void) {
     for(; it < initablen; it += 3 ) {
 		// relocate pointer
         // (void *)((int)segbase[initab[3*it]] + initab[3*it+2]) = 
-        //(void *)((int)segbase[initab[3*it]] + initab[3*it+2]) - ctl_reg->segm[initab[3*it+1]].startEA +
+        //(void *)((int)segbase[initab[3*it]] + initab[3*it+2]) - ctl_region->segm[initab[3*it+1]].startEA +
         //        (SEGMBASEADDR + initab[3*it+1]*SEGMNXTOFF);
 	}
 	return 0;
@@ -291,7 +292,7 @@ int load_blocks(void) {
     int blksize, it = 0;
     
 
-    for(; it < ctl_reg->nblks; ++it) {
+    for(; it < ctl_region->nblks; ++it) {
         printk(KERN_INFO "[+] Loading block #%d... ", it+1 );
         
         snprintf(blkname, 16, "%d", it+1);
@@ -303,8 +304,8 @@ int load_blocks(void) {
         memcpy(blkptr, supblk[it], blksize);
 
         if( *(unsigned short*)(blkptr + 4) < MAXNBLKS ) { // overflow?
-			ctl_reg->blk[*(unsigned short *)(blkptr + 4)].offset = (int)(free_space - (void *)ctl_reg);
-            strncpy(ctl_reg->blk[*(unsigned short *)(blkptr + 4)].name, blkname, 8);
+			ctl_region->blk[*(unsigned short *)(blkptr + 4)].offset = (int)(free_space - (void *)ctl_region);
+            strncpy(ctl_region->blk[*(unsigned short *)(blkptr + 4)].name, blkname, 8);
 		}
         else {
 			printk(KERN_ALERT "Overflow detected in block #%d. Try to increase MAXNBLKS!", it);

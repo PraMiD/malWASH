@@ -204,9 +204,9 @@ int start_threads(void) {
         //                    NULL, NULL, 0);
         //if(tid < 0) {
         //    printk(KERN_CRIT "A thread could not be launched, but we will start the other ones!\n");
-        //    ctl_reg->pidtab[it] = -1;
+        //    ctl_region->pidtab[it] = -1;
         //} else {
-        //    ctl_reg->pidtab[it] = tid;
+        //    ctl_region->pidtab[it] = tid;
         //}
 
         rcu_read_lock();

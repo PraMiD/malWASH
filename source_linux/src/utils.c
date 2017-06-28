@@ -9,7 +9,7 @@ unsigned long get_size_ctl_region(void) {
 	int it = 0;
 
 	if(!ctl_region_size) {
-		ctl_region_size = sizeof(struct ctl_reg_t);
+		ctl_region_size = sizeof(struct ctl_region);
 
 		for(it = 0; it < NBLOCKS; ++it)
 			ctl_region_size += blklen[it];

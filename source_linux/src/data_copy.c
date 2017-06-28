@@ -27,7 +27,7 @@ void loadblks(void) {
     uint    blksz;                                          // block size
     
 
-    for(it = 0; i < ctl_reg->nblks; ++it) { // Each block gets its own shared region
+    for(it = 0; i < ctl_region->nblks; ++it) { // Each block gets its own shared region
         printk(KERN_INFO "[+] Loading block #%d... ", i+1 );
         
         sprintf_s(blknam, 16, "%d", i+1 );                  // convert ID to string
