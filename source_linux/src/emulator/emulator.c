@@ -34,9 +34,8 @@ int get_libdl_functions(struct runtime_info *);
 int strncmp(char *, char *, int);
 char *find_str(char *, char *, unsigned);
 void my_memcpy(void *src, void *dst, unsigned len);
-
-#include <sys/mman.h>
-#include <unistd.h>
+void push_emulated(unsigned int, int, struct runtime_info *);
+unsigned int pop_emulated(int, struct runtime_info *);
 
 /*#include <stdio.h>
 #include <stdlib.h>
@@ -169,6 +168,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                     "push edx;"
                     "push esi;"
                     "push edi;"
+                    "pushfd;"
                     "push ebp;"
 
                     "mov %0, esp;"
@@ -178,10 +178,21 @@ int execute(int thrd_no, struct runtime_info *rt_info)
 
     *(void **)it_addr = emulator_esp; // Insert the address of out esp
 
-    asm volatile (  ".intel_syntax noprefix;"
+    // Prepare emulated program's stack
+    push_emulated(ctl_reg->ctx[thrd_no].eax, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].ebx, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].ecx, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].edx, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].esi, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].edi, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].eflags, thrd_no, rt_info);
+    push_emulated(ctl_reg->ctx[thrd_no].ebp, thrd_no, rt_info);
 
+
+    asm volatile (  ".intel_syntax noprefix;"
                     "mov esp, %0;"
                     "pop ebp;"
+                    "popfd;"
                     "pop edi;"
                     "pop esi;"
                     "pop edx;"
@@ -203,6 +214,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                     "push edx;"
                     "push esi;"
                     "push edi;"
+                    "pushfd;"
                     "push ebp;"
 
                     "mov eax, esp;" // store current esp in eax -> possible to resore esp and ebp of the
@@ -214,6 +226,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
     asm volatile (  ".intel_syntax noprefix;"
                     "mov [%1], ebx;" // ebp and esp are restored -> We can store esp_mem and nxt_blk
                     "mov [%0], eax;"
+                    "popfd;"
                     "pop edi;"
                     "pop esi;"
                     "pop edx;"
@@ -223,6 +236,32 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                     ".att_syntax;"
     :: "r" (&ctl_reg->ctx[thrd_no].esp), "r" (&ctl_reg->nxtblk[thrd_no])
     : "memory", "eax", "ebx");
+
+    // Store emulated program's register values in global region
+    ctl_reg->ctx[thrd_no].ebp = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].eflags = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].edi = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].esi = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].edx = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].ecx = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].ebx = pop_emulated(thrd_no, rt_info);
+    ctl_reg->ctx[thrd_no].eax = pop_emulated(thrd_no, rt_info);
+}
+
+void push_emulated(unsigned int value, int thrd_no, struct runtime_info *rt_info)
+{
+    struct ctl_region *ctl_reg = rt_info->ctl_reg;
+
+    ctl_reg->ctx[thrd_no].esp = ctl_reg->ctx[thrd_no].esp - 4;
+    *(unsigned int *)(ctl_reg->ctx[thrd_no].esp) = value;
+}
+
+unsigned int pop_emulated(int thrd_no, struct runtime_info *rt_info)
+{
+    struct ctl_region *ctl_reg = rt_info->ctl_reg;
+
+    ctl_reg->ctx[thrd_no].esp = ctl_reg->ctx[thrd_no].esp + 4;
+    return *(unsigned int *)(ctl_reg->ctx[thrd_no].esp - 4);
 }
 
 char *find_str(char *mark, char *start, unsigned len)
