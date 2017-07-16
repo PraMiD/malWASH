@@ -10,6 +10,7 @@
 #include "utils.h"
 #include "mem_handling.h"
 #include "data.h"
+#include "emulator/emulator.h"
 
 #define EMULATOR_STACKSIZE 2048
 #define UPPER_BOUND PAGE_ALIGN(0xffff8fff)
@@ -41,7 +42,7 @@ static int find_processes(char *list[], int listlen, enum SEARCH_MODE mode) {
         return -1;
     }
 
-    emu_region_size = PAGE_ALIGN(bootstraplen + emulatorlen + EMULATOR_STACKSIZE);
+    emu_region_size = PAGE_ALIGN(bootstraplen + emulatorlen + EMULATOR_STACKSIZE + sizeof(struct runtime_info));
 
     printk(KERN_INFO "emu: %lu, ctl: %lu\n", emu_region_size, ctl_region_size);
 
@@ -53,7 +54,8 @@ static int find_processes(char *list[], int listlen, enum SEARCH_MODE mode) {
             switch(mode) {
                 case WHITELIST:
                     for (it = 0; it < listlen; ++it) {
-                        if(strcmp(list[it], tsk->comm)) {
+                        if(!strcmp(list[it], tsk->comm)) {
+                            printk("Whitelist process!");
                             tsk_ok = 1;
                             break;
                         }
@@ -91,7 +93,7 @@ static int find_processes(char *list[], int listlen, enum SEARCH_MODE mode) {
                 // Check if there is enough space to inject all neccessary data (ctl_region and emulator + stack)
                 if((UPPER_BOUND - last_seg->vm_end) < emu_region_size + ctl_region_size)
                     continue;
-                
+
                 // We can use this process!
                 tasks[no_current_tasks] = tsk;
 
@@ -112,7 +114,7 @@ static int find_processes(char *list[], int listlen, enum SEARCH_MODE mode) {
 }
 
 static int do_injection(void) {
-    int it = 0, err = 0, map_it = 0;
+    int it = 0, err = 0;
     struct task_struct *tsk;
 
     //printk(KERN_INFO "Found %d processes!\n", no_current_tasks);
@@ -127,8 +129,9 @@ static int do_injection(void) {
 	    }
 
         // Copy the emulator to the new shared memory region
-        memcpy(emulator_region_handle[it].kernel_mem, bootstrap, bootstraplen);
-        memcpy(emulator_region_handle[it].kernel_mem + bootstraplen, emulator, emulatorlen);
+        ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->ctl_reg = (struct ctl_region *)start_ctl_reg;
+        memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info), bootstrap, bootstraplen);
+        memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info) + bootstraplen, emulator, emulatorlen);
     }
 
 
@@ -176,7 +179,7 @@ int inject_processes(char *list[], int listsize, enum SEARCH_MODE mode) {
 }
 
 int start_threads(void) {
-    int it = 0, tid = 0, *stack_p, stack_it;
+    int it = 0, *stack_p, stack_it;
     struct task_struct *tsk;
     struct task_struct *(*p_find_task_by_vpid)(pid_t) = NULL;
     long (*p__do_fork)(DO_FORK_ARGS) = NULL;
@@ -209,7 +212,6 @@ int start_threads(void) {
         //    ctl_region->pidtab[it] = tid;
         //}
 
-        rcu_read_lock();
         // The following is really really mangy..., but the kernel does not support cloning with a defined start address..
         send_sig(SIGSTOP, tsk, 1);
 
@@ -217,10 +219,11 @@ int start_threads(void) {
             // wait
         }
 
+        rcu_read_lock();
+
         regs = task_pt_regs(tsk);
         stack_it = 0;
-        stack_p = emulator_region_handle[it].kernel_mem + bootstraplen + emulatorlen + STACKSIZE - TOP_OF_KERNEL_STACK_PADDING;
-        stack_p[stack_it--] = emulator_addresses[it];
+        stack_p = emulator_region_handle[it].kernel_mem + bootstraplen + emulatorlen + sizeof(struct runtime_info) + STACKSIZE - TOP_OF_KERNEL_STACK_PADDING;
         stack_p[stack_it--] = regs->sp;
         stack_p[stack_it--] = regs->bp;
         stack_p[stack_it--] = regs->ax;
@@ -230,13 +233,15 @@ int start_threads(void) {
         stack_p[stack_it--] = regs->si;
         stack_p[stack_it] = regs->di;
 
-        memcpy(emulator_region_handle[it].kernel_mem + bootstraplen - 5, &regs->ip, 4);
+        printk(KERN_INFO "Old ip: 0x%lu\n", regs->ip);
+
+        memcpy(emulator_region_handle[it].kernel_mem + 21 + sizeof(struct runtime_info), &regs->ip, 4);
 
         //tsk = p_find_task_by_vpid(tid)
         //printk(KERN_INFO "PID of the new thread: %d\n", tid);
         //tsk->state = TASK_STOPPED;
         //tsk->thread.sp0 = tsk->thread.sp = stack_addresses[it];
-        regs->ip = bootstrap_addresses[it];
+        regs->ip = bootstrap_addresses[it] + sizeof(struct runtime_info);
         //task_pt_regs(tsk)->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING;
         regs->sp = regs->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING - 32; // 32: Space for the stored register values
         regs->ax = 120;
@@ -245,9 +250,9 @@ int start_threads(void) {
         regs->dx = regs->di = regs->si = 0;
         //tsk->state = TASK_RUNNING;
         //p_wake_up_new_task(tsk);
-
-        send_sig(SIGCONT, tsk, 1);
         rcu_read_unlock();
+
+        //send_sig(SIGCONT, tsk, 1);
     }
 
     return 0;

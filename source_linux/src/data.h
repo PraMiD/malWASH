@@ -9,8 +9,8 @@
  */
 
  
-#define NBLOCKS 0           // Number of blocks detected by IDA
-#define NSEGMS 0            // Number of segments
+#define NBLOCKS 3           // Number of blocks detected by IDA
+#define NSEGMS 2            // Number of segments
 #define NPROC  1            // Number of processes where we inject the emulator
 
 // Bootstrap code
@@ -22,7 +22,7 @@ extern char emulator[];
 extern size_t emulatorlen;
 
 // Segments contained in the program
-extern char *supsegm[];
+extern char **supsegm[];
 extern unsigned int seglen[];
 
 // Modules needed by the program
@@ -38,7 +38,7 @@ extern unsigned int thdtab[];
 
 // Initialized pointer table
 extern int initab[];
-extern int initablen;
+extern size_t initablen;
 
 extern size_t blklen[];
 extern char *supblk[];

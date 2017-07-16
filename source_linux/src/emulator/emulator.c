@@ -4,6 +4,8 @@
 #include "../ctl_region.h"
 #include "emulator.h"
 
+#define BOOTSTRAP_SIZE 26
+
 #define LIBDL_NAME "libdl.so.2"
 #define DL_OPEN_NAME "dlopen"
 #define DL_SYM_NAME "dlsym"
@@ -94,10 +96,15 @@ int _start()
         : "=r" (_start_addr)
         :: "memory" );
 
-    rt_info = _start_addr - sizeof(struct runtime_info);
-    rt_info->dlopen = 0;
-    rt_info->dlsym = 0;
-    get_libdl_functions(rt_info);
+    rt_info = _start_addr - BOOTSTRAP_SIZE - sizeof(struct runtime_info);
+    
+    while(1) 
+    {
+        if(lock(0, rt_info))
+        {
+            execute(0, rt_info);
+        }
+    }
 }
 
 /**
@@ -289,72 +296,6 @@ void my_memcpy(void *src, void *dst, unsigned len)
         it++;
     }
 }
-
-void *get_dynstr_section(struct runtime_info *rt_info)
-{
-    Elf32_Ehdr *ehdr = rt_info->libdl_start;
-    Elf32_Shdr *shdr, *shdrs_start = (Elf32_Shdr *)(((char *)ehdr) + ehdr->e_shoff);
-    char *strtab = ((char *)ehdr) + ((shdrs_start + ehdr->e_shstrndx))->sh_offset;
-    int sec_it = 0;
-
-    for(sec_it = 0; sec_it < ehdr->e_shnum; ++sec_it) {
-        // Iterate over all sections to find .dynstr section
-        shdr = shdrs_start + sec_it;
-        if(shdr->sh_type == SHT_STRTAB && strncmp(strtab + shdr->sh_name, DYNSTR_NAME, sizeof DYNSTR_NAME))
-            return ((char *)ehdr) + shdr->sh_offset;
-    }
-
-    return NULL;
-}
-
-
-int get_libdl_functions(struct runtime_info *rt_info)
-{
-    Elf32_Ehdr *ehdr = rt_info->libdl_start;
-    Elf32_Shdr *shdr, *shdrs_start = (Elf32_Shdr *)(((char *)ehdr) + ehdr->e_shoff);
-    Elf32_Sym *symbol, *symbols_start;
-    char *strtab = get_dynstr_section(rt_info);
-    int sec_it = 0, sym_it = 0;
-
-    rt_info->dlopen = NULL;
-    rt_info->dlsym = NULL;
-
-    if(strtab == NULL)
-        return -1;
-
-    for(sec_it = 0; sec_it < ehdr->e_shnum; ++sec_it) {
-        // Iterate over all sections to find .dynsym
-        shdr = shdrs_start + sec_it;
-        if(shdr->sh_type == SHT_DYNSYM)
-        {
-            // Ok we found the right section
-            symbols_start = (Elf32_Sym *)(((char *)ehdr) + shdr->sh_offset);
-            for(sym_it = 0; sym_it < shdr->sh_size / sizeof(Elf32_Sym); ++sym_it) {
-                symbol = symbols_start + sym_it;
-                unsigned char type = ELF32_ST_TYPE(symbol->st_info);
-                unsigned char bind = ELF32_ST_BIND(symbol->st_info);
-                unsigned int test = sizeof(Elf32_Sym);
-
-                if(ELF32_ST_TYPE(symbol->st_info) != STT_FUNC)
-                    continue;
-
-                if(strncmp(strtab + symbol->st_name, DL_OPEN_NAME, sizeof DL_OPEN_NAME) && !rt_info->dlopen) {
-                    //printf("Offset of dlopen: 0x%x\n", symbol->st_value);
-                    rt_info->dlopen = ((char *)ehdr) + symbol->st_value;
-                } else if(strncmp(strtab + symbol->st_name, DL_SYM_NAME, sizeof DL_SYM_NAME) && !rt_info->dlsym) {
-                    //printf("Offset of dlsym: 0x%x\n", symbol->st_value);
-                    rt_info->dlsym = ((char *)ehdr) + symbol->st_value;
-                }
-
-                if(rt_info->dlopen != 0 && rt_info->dlsym != 0)
-                    return 0;
-            }
-        }
-    }
-
-    return -1;
-}
-
 
 /**
  *  Compare two strings for equality.
