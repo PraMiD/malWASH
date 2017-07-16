@@ -13,6 +13,8 @@ unsigned long get_size_ctl_region(void) {
 
 		for(it = 0; it < NBLOCKS; ++it)
 			ctl_region_size += blklen[it];
+		for(it = 0; it < NSEGMS; ++it)
+			ctl_region_size += seglen[it];
 	}
 	ctl_region_size = PAGE_ALIGN(ctl_region_size);
 	return ctl_region_size;

@@ -139,6 +139,8 @@ int create_control_region(void) {
 		goto ERR;
 	}
 
+
+	printk("SIZE: %lu\n", get_size_ctl_region());
 	ctl_region = ctl_region_handle.kernel_mem;
 	ctl_region->nblks       = NBLOCKS;                      // set number of blocks
 	ctl_region->nxtblk[0]   = 1;                            // always start with block 1
@@ -159,8 +161,7 @@ int create_control_region(void) {
 	}
 
 	free_space = ctl_region_handle.kernel_mem + sizeof(struct ctl_region);
-
-	ctl_region->thrdst[0] = THREAD_RUNNING;)
+	ctl_region->thrdst[0] = THREAD_RUNNING;
 
 
 	if((err = load_segments()))
@@ -173,7 +174,6 @@ int create_control_region(void) {
 		goto ERR;
 	if((err = load_init_table()))
 		goto ERR;
-
 	printk(KERN_INFO "Control region setup successful!");
 
 	// TODO: Add command line arguments support here
@@ -200,9 +200,13 @@ int load_segments(void) {
     int it = 0;
 	void *p;
 
+	reasm();
+
 	#pragma GCC diagnostic ignored "-Warray-bounds"
-    for(p = supsegm[0]; p;  p = supsegm[++it])  // List is NULL terminated
+	while(supsegm[it])  // List is NULL terminated
     {
+		p = *supsegm[it];
+
         ctl_region->segm[it].segmid = it;                         // set index
         ctl_region->segm[it].startEA = *(void **)p;               // first 4 bytes is start RVA
         ctl_region->segm[it].endEA = *(void **)(p + 4);           // next  4 bytes is end RVA
@@ -213,6 +217,8 @@ int load_segments(void) {
         segbase[it] = free_space;                                  // store base address (we need it for initab relocations)
         memcpy(segbase[it], (void*)(p+8), seglen[it] - 8);            // copy const array to shared region
 		free_space += seglen[it] - 8;
+
+		it++;
 	}
 
 	return 0;
