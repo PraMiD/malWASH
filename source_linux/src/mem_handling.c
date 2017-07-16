@@ -3,10 +3,14 @@
 #include <linux/mm.h>
 #include <linux/kallsyms.h>
 
+#include <uapi/asm-generic/errno-base.h>
+#include <asm/uaccess.h>
+
 #include "mem_handling.h"
 
 static void mem_open(struct vm_area_struct *);
 static void mem_close(struct vm_area_struct *);
+static int mem_access(struct vm_area_struct *, unsigned long, void *, int ,int);
 
 static int find_vma_links(struct mm_struct *, unsigned long,
 		unsigned long, struct vm_area_struct **,
@@ -15,6 +19,7 @@ static int find_vma_links(struct mm_struct *, unsigned long,
 static struct vm_operations_struct vm_ops = {
     .open =  mem_open,
     .close = mem_close,
+	.access = mem_access
 };
 
 
@@ -118,6 +123,8 @@ int share_region(struct shrd_region_struct *region, struct task_struct *process,
      	goto ERR;
 	}
 
+	new_seg->vm_private_data = region;
+
 	up_write(&process->mm->mmap_sem);
     list_add_tail(&sharing->other_tasks, &region->mappings);
 	printk(KERN_INFO "Your start address: 0x%lx\n", new_seg->vm_start);
@@ -137,6 +144,21 @@ static void mem_open(struct vm_area_struct *vma)
 static void mem_close(struct vm_area_struct *vma)
 {
     printk(KERN_INFO "One process where we injected the emulator was closed => use the LKM to inject another process.\n");
+}
+
+static int mem_access(struct vm_area_struct *vma, unsigned long addr, void *buf, int len, int write)
+{
+	struct shrd_region_struct *region = vma->vm_private_data;
+
+	if(!region)
+		return -ENOENT;
+	
+	if(!buf || len < 1 || len > vma->vm_end - addr)
+		return -EINVAL;
+
+	if(write)
+		return copy_from_user(region->kernel_mem + (addr - vma->vm_start), buf, len);
+	return copy_to_user(buf, region->kernel_mem + (addr - vma->vm_start), len);
 }
 
 static int find_vma_links(struct mm_struct *mm, unsigned long addr,
