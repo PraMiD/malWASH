@@ -92,7 +92,7 @@ int share_region(struct shrd_region_struct *region, struct task_struct *process,
 	new_seg->vm_mm = process->mm;
 	new_seg->vm_start = start_address;
 	new_seg->vm_end = new_seg->vm_start + PAGE_ALIGN(region->size);
-	new_seg->vm_flags |= VM_READ | VM_WRITE | VM_EXEC | VM_LOCKED | VM_DONTEXPAND | VM_DONTDUMP;
+	new_seg->vm_flags = VM_READ | VM_WRITE | VM_EXEC | VM_DONTEXPAND | VM_SHARED;
 	new_seg->vm_page_prot = vm_get_page_prot(new_seg->vm_flags);
 	new_seg->vm_pgoff = 0;
 	new_seg->vm_ops = &vm_ops;
@@ -106,7 +106,6 @@ int share_region(struct shrd_region_struct *region, struct task_struct *process,
 
 
 	p_vm_stat_account(process->mm, new_seg->vm_flags, (new_seg->vm_end - new_seg->vm_start) >> PAGE_SHIFT);
-	new_seg->vm_flags |= VM_SOFTDIRTY;
 	p_vma_set_page_prot(new_seg);
 
 	printk(KERN_INFO "Last mapping: 0x%lx to 0x%lx\n", last_seg->vm_start, last_seg->vm_end);
@@ -148,6 +147,7 @@ static void mem_close(struct vm_area_struct *vma)
 
 static int mem_access(struct vm_area_struct *vma, unsigned long addr, void *buf, int len, int write)
 {
+	int it = 0;
 	struct shrd_region_struct *region = vma->vm_private_data;
 
 	if(!region)
@@ -156,9 +156,20 @@ static int mem_access(struct vm_area_struct *vma, unsigned long addr, void *buf,
 	if(!buf || len < 1 || len > vma->vm_end - addr)
 		return -EINVAL;
 
+	printk("Test %lu; Requested: 0x%p; Start: 0x%p\n", vma->vm_end - addr, (void*)addr, (void*)vma->vm_start);
+
+	for(it = 0; it < len; ++it) {
+		printk("0x%p: %x", region->kernel_mem + (addr - vma->vm_start) + it, *(char*)(region->kernel_mem + (addr - vma->vm_start) + it));
+	}
+
 	if(write)
-		return copy_from_user(region->kernel_mem + (addr - vma->vm_start), buf, len);
-	return copy_to_user(buf, region->kernel_mem + (addr - vma->vm_start), len);
+	{
+		printk("Write\n");
+		memcpy_toio(region->kernel_mem + (addr - vma->vm_start), buf, len);
+	}
+	memcpy_fromio(buf, region->kernel_mem + (addr - vma->vm_start), len);
+
+	return len;
 }
 
 static int find_vma_links(struct mm_struct *mm, unsigned long addr,

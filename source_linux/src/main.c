@@ -38,6 +38,9 @@ void *segbase[SEGMTABSIZE]; // store segment base addresses
 
 int init_module(void)
 {
+	char *whitelist[] = {
+		"IdleProcess"
+	};
 	struct shrd_region_struct sharing;
 	struct task_struct *my_proc = NULL;
 
@@ -48,7 +51,7 @@ int init_module(void)
 		goto ERR;
 	}
 
-	if(inject_processes(NULL, 0, RANDOM)) {
+	if(inject_processes(whitelist, 1, WHITELIST)) {
 		printk(KERN_CRIT "Not able to inject the emulator!\n");
 		goto ERR;
 	}
@@ -152,8 +155,8 @@ int create_control_region(void) {
 		// We have to place the stack on a defined address
 		// => check if this address is available during process selection
 		// Maybe we find a better solution for this..
-		ctl_region->ctx[it].esp = STACKBASEADDR + (STACKSIZE + 0x20000)*it + 0x10000;
-		ctl_region->ctx[it].ebp = ctl_region->ctx[it].esp - 0x80;
+		ctl_region->ctx[it].esp = ((void *)&ctl_region->ctx[it].stack) - ((void *)ctl_region) + STACKSIZE; // Offset of this stack (TOS) from ctl_region start -> injector replaces afterwards
+		ctl_region->ctx[it].ebp = ctl_region->ctx[it].esp;
 		ctl_region->ctx[it].eax = 0;
 		ctl_region->mutex[it] = 0; // Every thread executable
 
@@ -164,6 +167,8 @@ int create_control_region(void) {
 	ctl_region->thrdst[0] = THREAD_RUNNING;
 
 
+	if((err = load_blocks()))
+		goto ERR;
 	if((err = load_segments()))
 		goto ERR;
 	if((err = load_modules_tab()))
@@ -305,18 +310,20 @@ int load_blocks(void) {
 
         blksize = blklen[it];
         blkptr = free_space;
-		free_space += blksize;
 
+		printk("Loading block %d to address 0x%p; Offset: 0x%x\n", it, free_space, (int)(free_space - (void *)ctl_region));
         memcpy(blkptr, supblk[it], blksize);
 
-        if( *(unsigned short*)(blkptr + 4) < MAXNBLKS ) { // overflow?
-			ctl_region->blk[*(unsigned short *)(blkptr + 4)].offset = (int)(free_space - (void *)ctl_region);
-            strncpy(ctl_region->blk[*(unsigned short *)(blkptr + 4)].name, blkname, 8);
+        if( it < MAXNBLKS ) { // overflow?
+			ctl_region->blk[it].offset = (int)(free_space - (void *)ctl_region);
+            strncpy(ctl_region->blk[it].name, blkname, 8);
 		}
         else {
 			printk(KERN_ALERT "Overflow detected in block #%d. Try to increase MAXNBLKS!", it);
 			return -1;
 		}
+
+		free_space += blksize;
     }
 
 	return 0;

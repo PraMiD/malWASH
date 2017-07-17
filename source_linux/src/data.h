@@ -9,7 +9,7 @@
  */
 
  
-#define NBLOCKS 3           // Number of blocks detected by IDA
+#define NBLOCKS 2           // Number of blocks detected by IDA
 #define NSEGMS 2            // Number of segments
 #define NPROC  1            // Number of processes where we inject the emulator
 

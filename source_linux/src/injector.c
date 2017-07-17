@@ -117,6 +117,12 @@ static int do_injection(void) {
     int it = 0, err = 0;
     struct task_struct *tsk;
 
+    // Set the addresses of the shared stack
+    for(it = 0; it < NMAXTHREADS; ++it) {
+        ctl_region->ctx[it].esp += start_ctl_reg; // main.c -> Contains the offset from the start of the ctl_region
+        ctl_region->ctx[it].ebp += start_ctl_reg; // main.c -> Contains the offset from the start of the ctl_region
+    }
+
     //printk(KERN_INFO "Found %d processes!\n", no_current_tasks);
     for(it = 0; it < no_current_tasks; ++it) {
         tsk = tasks[it];
@@ -130,6 +136,8 @@ static int do_injection(void) {
 
         // Copy the emulator to the new shared memory region
         ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->ctl_reg = (struct ctl_region *)start_ctl_reg;
+        ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->dlsym = NULL;
+        ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->dlopen = NULL;
         memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info), bootstrap, bootstraplen);
         memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info) + bootstraplen, emulator, emulatorlen);
     }
@@ -243,10 +251,10 @@ int start_threads(void) {
         //tsk->thread.sp0 = tsk->thread.sp = stack_addresses[it];
         regs->ip = bootstrap_addresses[it] + sizeof(struct runtime_info);
         //task_pt_regs(tsk)->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING;
-        regs->sp = regs->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING - 32; // 32: Space for the stored register values
+        regs->sp = regs->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING - 32; // Space for stored register values
         regs->ax = 120;
         regs->bx = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND;
-        regs->cx = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING - 32;
+        regs->cx = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING;
         regs->dx = regs->di = regs->si = 0;
         //tsk->state = TASK_RUNNING;
         //p_wake_up_new_task(tsk);

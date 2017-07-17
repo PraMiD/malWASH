@@ -4,7 +4,7 @@
 #include "../ctl_region.h"
 #include "emulator.h"
 
-#define BOOTSTRAP_SIZE 26
+#define BOOTSTRAP_SIZE 28
 
 #define LIBDL_NAME "libdl.so.2"
 #define DL_OPEN_NAME "dlopen"
@@ -34,7 +34,7 @@ int lock(int, struct runtime_info *);
 int execute(int, struct runtime_info *);
 int get_libdl_functions(struct runtime_info *);
 int strncmp(char *, char *, int);
-char *find_str(char *, char *, unsigned);
+char *find_str(int, char *, unsigned);
 void my_memcpy(void *src, void *dst, unsigned len);
 void push_emulated(unsigned int, int, struct runtime_info *);
 unsigned int pop_emulated(int, struct runtime_info *);
@@ -142,10 +142,13 @@ int execute(int thrd_no, struct runtime_info *rt_info)
 
     // Load the next block of the given thread
     // Find BBLK and skip the mark and the block size
-    block_start = (void **)find_str("BBLK", ((char *)ctl_reg) + ctl_reg->blk[ctl_reg->nxtblk[thrd_no]].offset, sizeof "BBLK") + 6;
+    // 0x4b4c4242 == BBLK in big endian
+    block_start = (void **)find_str(0x4b4c4242, ((char *)ctl_reg) + ctl_reg->blk[ctl_reg->nxtblk[thrd_no] - 1].offset, sizeof "BBLK" - 1);
+    block_start = (void **)(((unsigned int) block_start) + 6);
     // TODO: We know the block length -> Find out if the length includes the length field and calculate the segment start from these values
-    segm_table = (void **)find_str("SEGM", (char *)block_start, sizeof "SEGM");
-    my_memcpy(block_start, &&block_execute_region, *((char *)(block_start - 2)));
+    // 0x4d474553 == SEGM in big endian
+    segm_table = (void **)find_str(0x4d474553, (char *)block_start, sizeof "SEGM" - 1);
+    my_memcpy(block_start, &&block_execute_region, *((short *)(((char *)block_start) - 2)));
 
     for(it_addr = (char *)segm_table + 4; *(void **)it_addr != (void *)0x434E5546; it_addr += 8) {
         segm_id = *(unsigned *)(it_addr + 4);
@@ -271,18 +274,20 @@ unsigned int pop_emulated(int thrd_no, struct runtime_info *rt_info)
     return *(unsigned int *)(ctl_reg->ctx[thrd_no].esp - 4);
 }
 
-char *find_str(char *mark, char *start, unsigned len)
+// Use an integer as mark here -> No data section is injected...
+char *find_str(int mark, char *start, unsigned len)
 {
     int it = 0;
     if(mark == NULL || start == NULL)
         return NULL;
     
     while(1) { // Pray that we find the string...
-        while(*start != *mark)
+        while(*start != *(char *)&mark)
             start++;
 
-        if(strncmp(mark, start, len))
+        if(strncmp((char *)&mark, start, len))
             return start;
+        start++;
     }
 
     return NULL; // Dead, but the compiler does not know it ;)
@@ -311,12 +316,13 @@ int strncmp(char *s1, char *s2, int n)
     if(s1 == '\0' || s2 == '\0')
         return 0;
     
-    for(it = 0; it <= n && s1[it] != '\0' && s2[it] != '\0'; it++) {
+    // < n as we compare strings that are not NULL terminated
+    for(it = 0; it < n && s1[it] != '\0' && s2[it] != '\0'; it++) {
         if (s1[it] != s2[it])
             return 0;
     }
 
-    if(it == n - 1 && s1[it] == '\0' && s2[it] == '\0')
+    if(it == n)
         return 1;
     return 0;
 }
