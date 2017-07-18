@@ -181,12 +181,12 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                     "pushfd;"
                     "push ebp;"
 
-                    "mov %0, esp;"
+                    "mov [%0], esp;"
                     ".att_syntax;"
-    :: "r" (emulator_esp)
+    :: "r" (it_addr)
     : "memory");
 
-    *(void **)it_addr = emulator_esp; // Insert the address of out esp
+    //*(void **)it_addr = emulator_esp; // Insert the address of out esp
 
     // Prepare emulated program's stack
     push_emulated(ctl_reg->ctx[thrd_no].eax, thrd_no, rt_info);
