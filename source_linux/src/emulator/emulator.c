@@ -136,7 +136,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
 {
     struct ctl_region *ctl_reg = rt_info->ctl_reg;
     char *it_addr; // We use char * here for easier searching -> ++ increments exactly one byte
-    void **block_start, **segm_table, **reloc_addr; // Just some address..
+    void **block_start, **segm_table, **reloc_addr, **repl_addr; // Just some address..
     unsigned it, segm_id;
     void *emulator_esp;
 
@@ -168,6 +168,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
     // Save emulator context and load process context
 
     for(it_addr = &&after_block_exec; *(void **)it_addr != (void *)0x01020304; it_addr++) ; // Find the address where we restore the right esp
+    repl_addr = (void **)it_addr;
 
     //exec_region[EXEC_REGION_SIZE- 5] = 0xFF;
     //((void **)exec_region)[EXEC_REGION_SIZE - 4] = &&after_exec;
@@ -183,7 +184,7 @@ int execute(int thrd_no, struct runtime_info *rt_info)
 
                     "mov [%0], esp;"
                     ".att_syntax;"
-    :: "r" (it_addr)
+    :: "r" (repl_addr)
     : "memory");
 
     //*(void **)it_addr = emulator_esp; // Insert the address of out esp
@@ -231,10 +232,14 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                                     // emulator and to access local variables directly
                     "mov esp, 0x01020304;" // Restore esp; Address replaced before execution
                     "pop ebp;" // Restore ebp
+                    "push eax;" // Save the original program's new stack pointer
+                    "push ebx;" // Save the next block index
                     ".att_syntax;"
-    ::: "memory");
+    ::: "memory", "eax", "ebx");
     asm volatile (  ".intel_syntax noprefix;"
-                    "mov [%1], ebx;" // ebp and esp are restored -> We can store esp_mem and nxt_blk
+                    "pop eax;" // The compiler inserts code between the asm sections -> temporarily store values on stack
+                    "mov [%1], eax;" // ebp and esp are restored -> We can store esp_mem and nxt_blk
+                    "pop eax;" // ESP
                     "mov [%0], eax;"
                     "popfd;"
                     "pop edi;"
@@ -246,6 +251,12 @@ int execute(int thrd_no, struct runtime_info *rt_info)
                     ".att_syntax;"
     :: "r" (&ctl_reg->ctx[thrd_no].esp), "r" (&ctl_reg->nxtblk[thrd_no])
     : "memory", "eax", "ebx");
+
+    asm volatile (  ".intel_syntax noprefix;"
+                    "mov dword ptr [%0], 0x01020304;" // Reset the replaces esp value to 0x01020304 to be able to search for it again
+                    ".att_syntax;"
+    :: "r" (repl_addr)
+    : "memory");
 
     // Store emulated program's register values in global region
     ctl_reg->ctx[thrd_no].ebp = pop_emulated(thrd_no, rt_info);
