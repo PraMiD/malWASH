@@ -9,7 +9,7 @@ _start:
 	; edx, edi, esi are NULL/0 as we do not need those parameters
 	int 80h
 	cmp eax, 0
-	jne short 0x0f	; Jump to _orig
+	jne short 0x0f	; Jump to _new
 
 _orig:
 	pop edi
