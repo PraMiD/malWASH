@@ -5,6 +5,7 @@
 #include <linux/ptrace.h>
 #include <linux/random.h>
 #include <linux/mm.h>
+#include <asm/uaccess.h>
 
 #include "injector.h"
 #include "utils.h"
@@ -12,8 +13,8 @@
 #include "data.h"
 #include "emulator/emulator.h"
 
-#define EMULATOR_STACKSIZE 2048
-#define UPPER_BOUND PAGE_ALIGN(0xffff8fff)
+#define EMULATOR_STACKSIZE 8192
+#define UPPER_BOUND PAGE_ALIGN(0xffff8000)
 
 #define DO_FORK_ARGS unsigned long clone_flags, unsigned long stack_start, unsigned long stack_size, int __user *parent_tidptr, int __user *child_tidptr, unsigned long tls
 #define LATENCY_ENTROPY_ARGS unsigned long clone_flags,unsigned long stack_start,unsigned long stack_size,int __user *child_tidptr,struct pid *pid,int trace,unsigned long tls,int node
@@ -97,7 +98,7 @@ static int find_processes(char *list[], int listlen, enum SEARCH_MODE mode) {
                 // We can use this process!
                 tasks[no_current_tasks] = tsk;
 
-                bootstrap_addresses[no_current_tasks] = UPPER_BOUND - emu_region_size;
+                bootstrap_addresses[no_current_tasks] = UPPER_BOUND - emu_region_size + sizeof(struct runtime_info);
                 emulator_addresses[no_current_tasks] = bootstrap_addresses[no_current_tasks] + bootstraplen;
                 stack_addresses[no_current_tasks] = emulator_addresses[no_current_tasks] + emulatorlen + EMULATOR_STACKSIZE;
                 start_ctl_reg = UPPER_BOUND - emu_region_size - ctl_region_size;
@@ -134,14 +135,16 @@ static int do_injection(void) {
 		    goto ERR;
 	    }
 
+
         // Copy the emulator to the new shared memory region
         ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->ctl_reg = (struct ctl_region *)start_ctl_reg;
         ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->dlsym = NULL;
         ((struct runtime_info *)emulator_region_handle[it].kernel_mem)->dlopen = NULL;
         memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info), bootstrap, bootstraplen);
         memcpy(emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info) + bootstraplen, emulator, emulatorlen);
-    }
 
+        printk("bootst: 0x%p, 0x%x\n", emulator_region_handle[it].kernel_mem , sizeof(struct runtime_info));
+    }
 
     // Do the actual injection!
     for(it = 0; it < no_current_tasks; ++it) {
@@ -149,7 +152,7 @@ static int do_injection(void) {
 
         printk(KERN_INFO "Injecting into process %d.\n", tsk->pid);
 
-        if((err = share_region(emulator_region_handle + it, tsk, bootstrap_addresses[it]))) {
+        if((err = share_region(emulator_region_handle + it, tsk, bootstrap_addresses[it] - sizeof(struct runtime_info)))) {
             printk(KERN_CRIT "Could not inject emulator into process %d", tsk->pid);
             goto ERR;
         }
@@ -231,7 +234,7 @@ int start_threads(void) {
 
         regs = task_pt_regs(tsk);
         stack_it = 0;
-        stack_p = emulator_region_handle[it].kernel_mem + bootstraplen + emulatorlen + sizeof(struct runtime_info) + STACKSIZE - TOP_OF_KERNEL_STACK_PADDING;
+        stack_p = emulator_region_handle[it].kernel_mem + sizeof(struct runtime_info) + bootstraplen + emulatorlen + EMULATOR_STACKSIZE / 2;
         stack_p[stack_it--] = regs->sp;
         stack_p[stack_it--] = regs->bp;
         stack_p[stack_it--] = regs->ax;
@@ -239,9 +242,13 @@ int start_threads(void) {
         stack_p[stack_it--] = regs->cx;
         stack_p[stack_it--] = regs->dx;
         stack_p[stack_it--] = regs->si;
-        stack_p[stack_it] = regs->di;
+        stack_p[stack_it--] = regs->di;
+        stack_p[stack_it] = 0xaaaaaaaa;
 
-        printk(KERN_INFO "Old ip: 0x%lu\n", regs->ip);
+        //copy_to_user((regs->sp & ~(THREAD_SIZE - 1)), &t, 4);
+
+        printk(KERN_INFO "Old eax: 0x%x\n", regs->ax);
+        printk(KERN_INFO "Old ip: 0x%x\n", regs->ip);
 
         memcpy(emulator_region_handle[it].kernel_mem + 21 + sizeof(struct runtime_info), &regs->ip, 4);
 
@@ -249,9 +256,9 @@ int start_threads(void) {
         //printk(KERN_INFO "PID of the new thread: %d\n", tid);
         //tsk->state = TASK_STOPPED;
         //tsk->thread.sp0 = tsk->thread.sp = stack_addresses[it];
-        regs->ip = bootstrap_addresses[it] + sizeof(struct runtime_info);
+        regs->ip = bootstrap_addresses[it];
         //task_pt_regs(tsk)->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING;
-        regs->sp = regs->bp = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING - 32; // Space for stored register values
+        regs->sp = regs->bp = regs->ip + bootstraplen + emulatorlen + EMULATOR_STACKSIZE / 2 - 28; // Space for stored register values
         regs->ax = 120;
         regs->bx = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND;
         regs->cx = stack_addresses[it] - TOP_OF_KERNEL_STACK_PADDING;

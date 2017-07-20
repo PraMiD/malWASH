@@ -31,6 +31,7 @@
 
 
 int lock(int, struct runtime_info *);
+void unlock(int, struct runtime_info *);
 int execute(int, struct runtime_info *);
 int get_libdl_functions(struct runtime_info *);
 int strncmp(char *, char *, int);
@@ -86,6 +87,7 @@ int _start()
 {
     void *_start_addr;
     struct runtime_info *rt_info;
+    int it;
 
     asm volatile (  ".intel_syntax noprefix;"
                     "call get_ip;"
@@ -100,9 +102,15 @@ int _start()
     
     while(1) 
     {
+        it = 0;
         if(lock(0, rt_info))
         {
             execute(0, rt_info);
+            unlock(0, rt_info);
+        }
+
+        while(it < 40000) {
+            it++;
         }
     }
 }
@@ -120,16 +128,22 @@ int lock(int thrd_no, struct runtime_info *rt_info)
     int res = 0;
     int *lock_addr = rt_info->ctl_reg->mutex + thrd_no;
     asm volatile (  ".intel_syntax noprefix;"
-                    "bts %1, 0;"
-                    "jnc short already_locked;"
-                    "mov %0, 1;"
+                    "mov %0, 0;"
+                    "bts dword ptr [%1], 0;"
+                    "jc short already_locked;"
+                    "add %0, 1;"
                     "already_locked:;"
                     ".att_syntax;"
-    : "=r" (res)
+    : "+r" (res)
     : "r" (lock_addr)
     : "memory");
 
     return res;
+}
+
+void unlock(int thrd_no, struct runtime_info *rt_info)
+{
+     rt_info->ctl_reg->mutex[thrd_no] = 0;
 }
 
 int execute(int thrd_no, struct runtime_info *rt_info)
