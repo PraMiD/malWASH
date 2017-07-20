@@ -267,7 +267,7 @@ int start_threads(void) {
         //p_wake_up_new_task(tsk);
         rcu_read_unlock();
 
-        //send_sig(SIGCONT, tsk, 1);
+        send_sig(SIGCONT, tsk, 1);
     }
 
     return 0;
